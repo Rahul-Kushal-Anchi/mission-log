@@ -4,6 +4,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, StreamingResponse,
 from fastapi.templating import Jinja2Templates
 from fastapi.staticfiles import StaticFiles
 from datetime import date, timedelta
+from sqlalchemy import func, or_
 from db import SessionLocal, init_db
 from models import LogEntry, Task
 import csv
@@ -36,6 +37,32 @@ def get_db():
         db.close()
 
 
+def calculate_streak(db) -> int:
+    """Calculate consecutive days with activity ending today"""
+    streak = 0
+    check_date = date.today()
+    
+    while True:
+        # Check if there's any log or completed task on this date
+        has_log = db.query(LogEntry).filter(LogEntry.log_date == check_date).first()
+        has_done_task = db.query(Task).filter(
+            Task.log_date == check_date,
+            Task.done == True
+        ).first()
+        
+        if has_log or has_done_task:
+            streak += 1
+            check_date -= timedelta(days=1)
+        else:
+            break
+        
+        # Safety limit
+        if streak > 365:
+            break
+    
+    return streak
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request, day: str = None):
     db = next(get_db())
@@ -51,6 +78,24 @@ def home(request: Request, day: str = None):
 
     # Calculate total minutes for the day
     total_minutes = sum((l.duration_min or 0) for l in logs)
+    
+    # Calculate high-impact minutes
+    high_impact_minutes = sum((l.duration_min or 0) for l in logs if l.impact == "High")
+    
+    # Category totals
+    by_cat = {}
+    for l in logs:
+        by_cat[l.category] = by_cat.get(l.category, 0) + (l.duration_min or 0)
+    
+    # Sort by minutes descending
+    by_cat_sorted = dict(sorted(by_cat.items(), key=lambda x: x[1], reverse=True))
+    
+    # Calculate streak
+    streak = calculate_streak(db)
+    
+    # Tasks stats
+    done_tasks = sum(1 for t in tasks if t.done)
+    total_tasks = len(tasks)
 
     return templates.TemplateResponse(
         request,
@@ -59,7 +104,12 @@ def home(request: Request, day: str = None):
             "log_date": log_date,
             "logs": logs,
             "tasks": tasks,
-            "total_minutes": total_minutes
+            "total_minutes": total_minutes,
+            "high_impact_minutes": high_impact_minutes,
+            "by_cat": by_cat_sorted,
+            "streak": streak,
+            "done_tasks": done_tasks,
+            "total_tasks": total_tasks
         }
     )
 
@@ -70,6 +120,7 @@ def add_log(
     category: str = Form("General"),
     outcome: str = Form(""),
     duration_min: int = Form(0),
+    impact: str = Form("Low"),
     day: str = Form(None)
 ):
     db = next(get_db())
@@ -80,7 +131,8 @@ def add_log(
         category=category,
         text=text,
         outcome=outcome,
-        duration_min=duration_min
+        duration_min=duration_min,
+        impact=impact
     )
     db.add(entry)
     db.commit()
@@ -123,13 +175,13 @@ def export_csv(day: str = None):
     writer = csv.writer(output)
     
     # Write logs
-    writer.writerow(["Type", "Timestamp", "Category", "Text", "Outcome/Status", "Duration"])
+    writer.writerow(["Type", "Timestamp", "Category", "Text", "Outcome/Status", "Duration", "Impact"])
     for log in logs:
-        writer.writerow(["Log", log.ts.isoformat(), log.category, log.text, log.outcome, log.duration_min or 0])
+        writer.writerow(["Log", log.ts.isoformat(), log.category, log.text, log.outcome, log.duration_min or 0, log.impact or "Low"])
     
     for task in tasks:
         status = "Done" if task.done else "Pending"
-        writer.writerow(["Task", task.ts.isoformat(), "-", task.title, status, "-"])
+        writer.writerow(["Task", task.ts.isoformat(), "-", task.title, status, "-", "-"])
 
     output.seek(0)
     return StreamingResponse(
@@ -159,6 +211,8 @@ def export_weekly(day: str = None):
     )
 
     total_minutes = sum((l.duration_min or 0) for l in logs)
+    high_impact_minutes = sum((l.duration_min or 0) for l in logs if l.impact == "High")
+    med_impact_minutes = sum((l.duration_min or 0) for l in logs if l.impact == "Med")
     done_tasks = sum(1 for t in tasks if t.done)
     total_tasks = len(tasks)
 
@@ -167,11 +221,18 @@ def export_weekly(day: str = None):
     for l in logs:
         by_cat[l.category] = by_cat.get(l.category, 0) + (l.duration_min or 0)
 
+    # Streak
+    streak = calculate_streak(db)
+
     lines = []
     lines.append(f"# Weekly Execution Report ({start_day} → {end_day})")
     lines.append("")
+    lines.append("## Summary")
     lines.append(f"- Total time: **{total_minutes} min** (**{total_minutes/60:.2f} hrs**)")
+    lines.append(f"- High-impact time: **{high_impact_minutes} min** (**{high_impact_minutes/60:.2f} hrs**)")
+    lines.append(f"- Med-impact time: **{med_impact_minutes} min** (**{med_impact_minutes/60:.2f} hrs**)")
     lines.append(f"- Tasks: **{done_tasks}/{total_tasks}** completed")
+    lines.append(f"- Current streak: **{streak} days**")
     lines.append("")
     lines.append("## Time by Category")
     for cat, mins in sorted(by_cat.items(), key=lambda x: x[1], reverse=True):
@@ -185,7 +246,8 @@ def export_weekly(day: str = None):
             lines.append(f"### {current}")
         outcome = f" — _{l.outcome}_" if l.outcome else ""
         dur = f" ({l.duration_min}m)" if l.duration_min else ""
-        lines.append(f"- **{l.category}**{dur}: {l.text}{outcome}")
+        impact_tag = f" [{l.impact}]" if l.impact and l.impact != "Low" else ""
+        lines.append(f"- **{l.category}**{dur}{impact_tag}: {l.text}{outcome}")
 
     md = "\n".join(lines)
     return md

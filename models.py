@@ -14,6 +14,7 @@ class LogEntry(Base):
     text = Column(Text, nullable=False)
     outcome = Column(String(100), default="")
     duration_min = Column(Integer, default=0)  # Duration in minutes
+    impact = Column(String(10), default="Low", index=True)  # Low/Med/High
 
 
 class Task(Base):

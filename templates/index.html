@@ -25,19 +25,53 @@
       color: white;
       padding: 16px 20px;
       border-radius: 10px;
-      margin-bottom: 20px;
+      margin-bottom: 12px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 12px;
+      gap: 16px;
     }
     .stats-bar .stat {
-      font-size: 14px;
+      text-align: center;
     }
     .stats-bar .stat-value {
       font-size: 24px;
       font-weight: 700;
+    }
+    .stats-bar .stat-label {
+      font-size: 12px;
+      opacity: 0.9;
+    }
+    .streak-badge {
+      background: #ff6b6b;
+      padding: 8px 16px;
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .streak-badge .fire {
+      font-size: 20px;
+    }
+    .cat-totals {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .chip {
+      background: white;
+      border: 1px solid #e0e0e0;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 13px;
+      color: #555;
+    }
+    .chip-high {
+      background: #ffebee;
+      border-color: #ef5350;
+      color: #c62828;
     }
     .date-nav {
       display: flex;
@@ -132,12 +166,12 @@
     }
     .form-row {
       display: flex;
-      gap: 16px;
+      gap: 12px;
       flex-wrap: wrap;
     }
     .form-row > div {
       flex: 1;
-      min-width: 120px;
+      min-width: 100px;
     }
     .form-actions {
       margin-top: 16px;
@@ -149,28 +183,48 @@
       border-radius: 8px;
       border-left: 4px solid #4361ee;
     }
+    .log-entry.impact-high {
+      border-left-color: #ef5350;
+      background: #fff8f8;
+    }
+    .log-entry.impact-med {
+      border-left-color: #ff9800;
+      background: #fffbf5;
+    }
     .log-meta {
       font-size: 12px;
       color: #666;
       margin-bottom: 6px;
       display: flex;
       align-items: center;
-      gap: 8px;
+      gap: 6px;
       flex-wrap: wrap;
     }
-    .log-meta .category {
+    .pill {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+      font-size: 11px;
+    }
+    .pill-category {
       background: #4361ee;
       color: white;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 500;
     }
-    .log-meta .duration {
+    .pill-duration {
       background: #28a745;
       color: white;
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-weight: 500;
+    }
+    .pill-impact-high {
+      background: #ef5350;
+      color: white;
+    }
+    .pill-impact-med {
+      background: #ff9800;
+      color: white;
+    }
+    .pill-impact-low {
+      background: #e0e0e0;
+      color: #666;
     }
     .log-text {
       font-size: 14px;
@@ -225,6 +279,11 @@
       gap: 10px;
       margin-left: auto;
     }
+    .task-progress {
+      font-size: 13px;
+      color: #666;
+      margin-top: 8px;
+    }
   </style>
 </head>
 <body>
@@ -232,14 +291,30 @@
   
   <div class="stats-bar">
     <div class="stat">
-      <div class="stat-value">{{ total_minutes }} min</div>
-      <div>Total logged ({{ (total_minutes / 60) | round(2) }} hrs)</div>
+      <div class="stat-value">{{ total_minutes }}m</div>
+      <div class="stat-label">Total ({{ (total_minutes / 60) | round(1) }}h)</div>
     </div>
-    <div class="stat" style="text-align: right;">
-      <div class="stat-value">{{ log_date }}</div>
-      <div>Current day</div>
+    <div class="stat">
+      <div class="stat-value">{{ high_impact_minutes }}m</div>
+      <div class="stat-label">High Impact</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">{{ done_tasks }}/{{ total_tasks }}</div>
+      <div class="stat-label">Tasks Done</div>
+    </div>
+    <div class="streak-badge">
+      <span class="fire">🔥</span>
+      <span><strong>{{ streak }}</strong> day streak</span>
     </div>
   </div>
+
+  {% if by_cat %}
+  <div class="cat-totals">
+    {% for cat, mins in by_cat.items() %}
+      <span class="chip">{{ cat }}: {{ mins }}m</span>
+    {% endfor %}
+  </div>
+  {% endif %}
 
   <div class="date-nav">
     <form method="get" style="display: flex; gap: 10px; align-items: center;">
@@ -271,13 +346,21 @@
             </select>
           </div>
           <div>
-            <label>Duration (minutes)</label>
+            <label>Duration (min)</label>
             <input name="duration_min" type="number" min="0" value="0">
+          </div>
+          <div>
+            <label>Impact</label>
+            <select name="impact">
+              <option value="Low">Low</option>
+              <option value="Med">Med</option>
+              <option value="High">High</option>
+            </select>
           </div>
         </div>
 
         <label>What happened?</label>
-        <textarea name="text" rows="4" placeholder="Describe the activity or event..." required></textarea>
+        <textarea name="text" rows="3" placeholder="Describe the activity or event..." required></textarea>
 
         <label>Outcome (optional)</label>
         <input name="outcome" placeholder="e.g., Applied to DataKind, confirmation received">
@@ -290,12 +373,15 @@
       <h2 style="margin-top: 24px;">Today's Logs</h2>
       {% if logs %}
         {% for l in logs %}
-          <div class="log-entry">
+          <div class="log-entry impact-{{ (l.impact or 'low') | lower }}">
             <div class="log-meta">
-              {{ l.ts.strftime('%H:%M') }} — 
-              <span class="category">{{ l.category }}</span>
+              <span>{{ l.ts.strftime('%H:%M') }}</span>
+              <span class="pill pill-category">{{ l.category }}</span>
               {% if l.duration_min %}
-                <span class="duration">{{ l.duration_min }}m</span>
+                <span class="pill pill-duration">{{ l.duration_min }}m</span>
+              {% endif %}
+              {% if l.impact and l.impact != 'Low' %}
+                <span class="pill pill-impact-{{ l.impact | lower }}">{{ l.impact }}</span>
               {% endif %}
             </div>
             <div class="log-text">{{ l.text }}</div>
