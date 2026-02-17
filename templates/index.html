@@ -20,11 +20,30 @@
       color: #1a1a2e;
       margin-bottom: 8px;
     }
+    .stats-bar {
+      background: linear-gradient(135deg, #4361ee 0%, #3a56d4 100%);
+      color: white;
+      padding: 16px 20px;
+      border-radius: 10px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .stats-bar .stat {
+      font-size: 14px;
+    }
+    .stats-bar .stat-value {
+      font-size: 24px;
+      font-weight: 700;
+    }
     .date-nav {
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
       flex-wrap: wrap;
     }
     .date-nav input[type="date"] {
@@ -42,6 +61,8 @@
       cursor: pointer;
       font-size: 14px;
       transition: background 0.2s;
+      text-decoration: none;
+      display: inline-block;
     }
     .date-nav button:hover, .btn:hover {
       background: #3a56d4;
@@ -51,6 +72,15 @@
     }
     .btn-secondary:hover {
       background: #5a6268;
+    }
+    .btn-outline {
+      background: transparent;
+      border: 1px solid #4361ee;
+      color: #4361ee;
+    }
+    .btn-outline:hover {
+      background: #4361ee;
+      color: white;
     }
     .row {
       display: flex;
@@ -89,6 +119,9 @@
       font-size: 14px;
       font-family: inherit;
     }
+    input[type="number"] {
+      width: 100px;
+    }
     textarea {
       resize: vertical;
     }
@@ -96,6 +129,15 @@
       outline: none;
       border-color: #4361ee;
       box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1);
+    }
+    .form-row {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+    .form-row > div {
+      flex: 1;
+      min-width: 120px;
     }
     .form-actions {
       margin-top: 16px;
@@ -111,9 +153,20 @@
       font-size: 12px;
       color: #666;
       margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
     }
     .log-meta .category {
       background: #4361ee;
+      color: white;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .log-meta .duration {
+      background: #28a745;
       color: white;
       padding: 2px 8px;
       border-radius: 4px;
@@ -167,7 +220,9 @@
       color: #888;
       font-size: 14px;
     }
-    .export-link {
+    .export-links {
+      display: flex;
+      gap: 10px;
       margin-left: auto;
     }
   </style>
@@ -175,12 +230,26 @@
 <body>
   <h1>Mission Log</h1>
   
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-value">{{ total_minutes }} min</div>
+      <div>Total logged ({{ (total_minutes / 60) | round(2) }} hrs)</div>
+    </div>
+    <div class="stat" style="text-align: right;">
+      <div class="stat-value">{{ log_date }}</div>
+      <div>Current day</div>
+    </div>
+  </div>
+
   <div class="date-nav">
     <form method="get" style="display: flex; gap: 10px; align-items: center;">
       <input type="date" name="day" value="{{ log_date }}">
       <button type="submit">Go</button>
     </form>
-    <a href="/export?day={{ log_date }}" class="btn btn-secondary export-link">Export CSV</a>
+    <div class="export-links">
+      <a href="/export?day={{ log_date }}" class="btn btn-secondary">Export CSV</a>
+      <a href="/export/weekly?day={{ log_date }}" class="btn btn-outline">Weekly Report</a>
+    </div>
   </div>
 
   <div class="row">
@@ -189,15 +258,23 @@
       <form method="post" action="/log">
         <input type="hidden" name="day" value="{{ log_date }}">
         
-        <label>Category</label>
-        <select name="category">
-          <option value="Visa">Visa</option>
-          <option value="Networking">Networking</option>
-          <option value="LeetCode">LeetCode</option>
-          <option value="Build">Build</option>
-          <option value="Reading">Reading</option>
-          <option value="General" selected>General</option>
-        </select>
+        <div class="form-row">
+          <div>
+            <label>Category</label>
+            <select name="category">
+              <option value="Visa">Visa</option>
+              <option value="Networking">Networking</option>
+              <option value="LeetCode">LeetCode</option>
+              <option value="Build">Build</option>
+              <option value="Reading">Reading</option>
+              <option value="General" selected>General</option>
+            </select>
+          </div>
+          <div>
+            <label>Duration (minutes)</label>
+            <input name="duration_min" type="number" min="0" value="0">
+          </div>
+        </div>
 
         <label>What happened?</label>
         <textarea name="text" rows="4" placeholder="Describe the activity or event..." required></textarea>
@@ -215,7 +292,11 @@
         {% for l in logs %}
           <div class="log-entry">
             <div class="log-meta">
-              {{ l.ts.strftime('%H:%M') }} — <span class="category">{{ l.category }}</span>
+              {{ l.ts.strftime('%H:%M') }} — 
+              <span class="category">{{ l.category }}</span>
+              {% if l.duration_min %}
+                <span class="duration">{{ l.duration_min }}m</span>
+              {% endif %}
             </div>
             <div class="log-text">{{ l.text }}</div>
             {% if l.outcome %}

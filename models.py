@@ -13,6 +13,7 @@ class LogEntry(Base):
     category = Column(String(50), default="General", index=True)
     text = Column(Text, nullable=False)
     outcome = Column(String(100), default="")
+    duration_min = Column(Integer, default=0)  # Duration in minutes
 
 
 class Task(Base):
